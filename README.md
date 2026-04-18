@@ -86,3 +86,17 @@ npm run dev
    - Chuyển sang tab **Settings**.
    - Cuộn tìm mục **Networking** -> **Public Networking** -> Nhấn **Generate Domain**.
    - Đợi 1-2 phút, ứng dụng sẽ có link `.up.railway.app` public để mọi người cùng sử dụng!
+
+## AI Agent Architecture & Tools
+
+This application goes beyond a standard LLM wrapper; it functions as a fully autonomous **Agentic RAG System** powered by [LangGraph](https://langchain-ai.github.io/langgraphjs/). The underlying model makes autonomous decisions on when and how to invoke external tools to fulfill user requests dynamically.
+
+### 1. Knowledge Base Retrieval Tool (`ragSearchTool`)
+- **Technology Stack:** `@pinecone-database/pinecone`, `@langchain/google-genai`, `gemini-embedding-001`.
+- **How it works:** When a user asks for specific psychological advice, breathing exercises, or factual mental health guidelines, the AI autonomously invokes this tool. The tool vectorizes the user's query using Google's 3072-dimensional embedding model, queries the Pinecone Serverless Vector Database using Cosine similarity, and retrieves the top 4 most semantically relevant chunks of verified medical literature. The AI then synthesizes this external context into its final empathetic response, heavily reducing hallucination.
+- **Code Implementation:** Defined using LangChain's `tool()` wrapper. The tool enforces a strictly typed schema using `zod` (`z.object({ query: z.string() })`). Inside the executor function, it initializes `GoogleGenerativeAIEmbeddings` and connects to the `PineconeStore`. It then executes `vectorStore.similaritySearch(query, 4)` to retrieve matching `Document` objects. The `pageContent` of these documents are concatenated into a single context string and returned to the agent's memory state.
+
+### 2. Automated Email Dispatch Tool (`sendSummaryEmailTool`)
+- **Technology Stack:** `nodemailer`, SMTP (Gmail Server).
+- **How it works:** When a user explicitly requests a summary, wants to save their conversation, or asks for advice to be sent to their inbox, the AI formats the relevant context beautifully using HTML and invokes this tool. The backend leverages Node.js `nodemailer` to programmatically dispatch the personalized email to the user's provided address in real-time. This grants the Agent the ability to perform external actions outside the chat interface.
+- **Code Implementation:** The tool schema is strictly defined with `zod` requiring three arguments from the LLM: `recipient_email`, `subject`, and `html_content`. Upon invocation, it initializes a `nodemailer.createTransport()` instance authenticated via environment variables (`EMAIL_USER`, `EMAIL_PASS`). It then constructs the `mailOptions` payload and dispatches it via `transporter.sendMail()`. It includes `try/catch` error handling and returns a success confirmation string back to the LLM so the agent is aware the action was successfully completed.

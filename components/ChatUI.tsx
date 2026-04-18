@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useRef, useEffect } from "react";
-import { Send, Menu, Plus, Star, AlertTriangle, ChevronDown, Sparkles, Smile } from "lucide-react";
+import { Send, Menu, Plus, Star, AlertTriangle, ChevronDown, Sparkles, Smile, UploadCloud, X } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { cn } from "@/lib/utils";
@@ -31,6 +31,14 @@ export default function ChatUI() {
   const [isLoading, setIsLoading] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  // Ingest Modal States
+  const [showIngestModal, setShowIngestModal] = useState(false);
+  const [ingestFile, setIngestFile] = useState<File | null>(null);
+  const [chunkSize, setChunkSize] = useState("1000");
+  const [chunkOverlap, setChunkOverlap] = useState("200");
+  const [embeddingModel, setEmbeddingModel] = useState("gemini-embedding-001");
+  const [isIngesting, setIsIngesting] = useState(false);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -97,29 +105,65 @@ export default function ChatUI() {
     }
   }
 
+  const handleIngest = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!ingestFile) return;
+    setIsIngesting(true);
+    try {
+      const formData = new FormData();
+      formData.append("file", ingestFile);
+      formData.append("chunkSize", chunkSize);
+      formData.append("chunkOverlap", chunkOverlap);
+      formData.append("embeddingModel", embeddingModel);
+
+      const res = await fetch("/api/ingest-pdf", {
+        method: "POST",
+        body: formData,
+      });
+
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to ingest PDF");
+      
+      alert(data.message || "Success!");
+      setShowIngestModal(false);
+      setIngestFile(null);
+    } catch (error: any) {
+      console.error(error);
+      alert(error.message);
+    } finally {
+      setIsIngesting(false);
+    }
+  };
+
   return (
     <div className="flex h-screen w-full font-sans bg-background text-foreground overflow-hidden">
       {/* SIDEBAR */}
       <div className={cn(
-        "fixed inset-y-0 left-0 z-20 w-64 transform bg-[#fffae8] border-r border-border transition-transform duration-300 md:relative md:translate-x-0 flex flex-col shadow-[4px_0_24px_rgba(245,158,11,0.05)]",
-        sidebarOpen ? "translate-x-0" : "-translate-x-full"
+        "fixed inset-y-0 left-0 z-20 w-[280px] shrink-0 transform bg-[#fffae8] border-r border-border transition-all duration-300 md:relative flex flex-col shadow-[4px_0_24px_rgba(245,158,11,0.05)]",
+        sidebarOpen ? "translate-x-0 md:ml-0" : "-translate-x-full md:-ml-[280px]"
       )}>
         <div className="p-4 flex items-center justify-between">
           <div className="font-bold flex items-center gap-2 text-primary-foreground bg-primary px-4 py-2 rounded-[1rem] shadow-sm text-sm">
             <Sparkles size={18} className="animate-pulse" />
             <span>Serene 🌻</span>
           </div>
-          <button onClick={() => setSidebarOpen(false)} className="md:hidden text-primary hover:text-primary-foreground bg-accent hover:bg-primary transition-colors p-1.5 rounded-xl">
+          <button onClick={() => setSidebarOpen(false)} className="text-primary hover:text-primary-foreground bg-accent hover:bg-primary transition-colors p-1.5 rounded-xl">
             <ChevronDown size={20} className="rotate-90"/>
           </button>
         </div>
         
-        <div className="px-4 mb-4">
+        <div className="px-4 mb-4 flex flex-col gap-2">
           <button 
             onClick={clearChat}
             className="w-full flex items-center justify-center gap-2 bg-white border-2 border-border hover:bg-accent text-foreground py-2.5 px-4 rounded-[1.2rem] transition-colors shadow-sm text-sm font-bold"
           >
             <Plus size={18} /> New Chat 🐾
+          </button>
+          <button 
+            onClick={() => setShowIngestModal(true)}
+            className="w-full flex items-center justify-center gap-2 bg-[#fffbed] border-2 border-primary hover:bg-primary hover:text-primary-foreground text-foreground py-2.5 px-4 rounded-[1.2rem] transition-colors shadow-sm text-sm font-bold"
+          >
+            <UploadCloud size={18} /> Upload Knowledge
           </button>
         </div>
 
@@ -150,11 +194,81 @@ export default function ChatUI() {
         />
       )}
 
+      {/* INGEST MODAL */}
+      {showIngestModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm">
+          <div className="bg-white rounded-3xl p-6 w-full max-w-md shadow-2xl relative border-2 border-border animate-in fade-in zoom-in duration-200">
+            <button 
+              onClick={() => setShowIngestModal(false)}
+              className="absolute top-4 right-4 p-1 rounded-full hover:bg-accent text-muted-foreground transition-colors"
+            >
+              <X size={20} />
+            </button>
+            <h2 className="text-xl font-bold flex items-center gap-2 mb-4">
+              <UploadCloud className="text-primary" /> Upload PDF Knowledge
+            </h2>
+            <form onSubmit={handleIngest} className="flex flex-col gap-4">
+              <div>
+                <label className="block text-sm font-medium mb-1">PDF File</label>
+                <input 
+                  type="file" 
+                  accept="application/pdf"
+                  required
+                  onChange={(e) => setIngestFile(e.target.files?.[0] || null)}
+                  className="w-full text-sm file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-primary file:text-primary-foreground hover:file:bg-orange-500 transition-colors"
+                />
+              </div>
+              <div className="flex gap-4">
+                <div className="flex-1">
+                  <label className="block text-sm font-medium mb-1">Chunk Size</label>
+                  <input 
+                    type="number" 
+                    required
+                    value={chunkSize}
+                    onChange={(e) => setChunkSize(e.target.value)}
+                    className="w-full border-2 border-border rounded-xl px-3 py-2 text-sm focus:border-primary outline-none transition-colors"
+                  />
+                </div>
+                <div className="flex-1">
+                  <label className="block text-sm font-medium mb-1">Overlap</label>
+                  <input 
+                    type="number" 
+                    required
+                    value={chunkOverlap}
+                    onChange={(e) => setChunkOverlap(e.target.value)}
+                    className="w-full border-2 border-border rounded-xl px-3 py-2 text-sm focus:border-primary outline-none transition-colors"
+                  />
+                </div>
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-1">Embedding Model</label>
+                <select 
+                  value={embeddingModel}
+                  onChange={(e) => setEmbeddingModel(e.target.value)}
+                  className="w-full border-2 border-border rounded-xl px-3 py-2 text-sm focus:border-primary outline-none transition-colors"
+                >
+                  <option value="gemini-embedding-001">gemini-embedding-001 (Recommended)</option>
+                  <option value="text-embedding-004">text-embedding-004</option>
+                  <option value="textembedding-gecko@001">textembedding-gecko@001</option>
+                </select>
+              </div>
+              <button 
+                type="submit" 
+                disabled={isIngesting || !ingestFile}
+                className="w-full bg-primary hover:bg-orange-500 text-primary-foreground font-bold py-3 rounded-xl transition-colors mt-2 flex items-center justify-center gap-2 disabled:opacity-50"
+              >
+                {isIngesting ? <><Sparkles className="animate-spin" size={18} /> Processing...</> : "Upload & Ingest"}
+              </button>
+            </form>
+          </div>
+        </div>
+      )}
+
       {/* MAIN CHAT AREA */}
-      <div className="flex-1 flex flex-col h-full relative bg-fun-pattern">
+      <div className="flex-1 flex flex-col h-full relative bg-fun-pattern min-w-0">
         {/* Header */}
-        <header className="h-16 flex items-center px-4 border-b border-border bg-white/70 backdrop-blur-md z-10 shrink-0 shadow-sm">
-          <button onClick={() => setSidebarOpen(true)} className="md:hidden mr-3 p-2 bg-accent hover:bg-primary hover:text-primary-foreground rounded-xl text-primary transition-colors">
+        <header className="h-16 flex items-center justify-center px-4 border-b border-border bg-white/70 backdrop-blur-md z-10 shrink-0 shadow-sm relative">
+          <button onClick={() => setSidebarOpen(true)} className={cn("absolute left-4 p-2 bg-accent hover:bg-primary hover:text-primary-foreground rounded-xl text-primary transition-colors", sidebarOpen ? "md:hidden" : "block")}>
             <Menu size={20} />
           </button>
           <h1 className="font-bold text-lg text-foreground flex items-center gap-2">
