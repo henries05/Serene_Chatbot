@@ -92,7 +92,7 @@ export async function POST(req: NextRequest) {
     }
 
     if (vectors.length > 0) {
-      await index.upsert({ records: vectors });
+      await index.upsert(vectors);
     }
 
     return NextResponse.json({ 
