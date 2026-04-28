@@ -5,13 +5,21 @@ import { Send, Menu, Plus, Star, AlertTriangle, ChevronDown, Sparkles, Smile, Up
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { cn } from "@/lib/utils";
-import { auth } from "@/app/config/firebaseClient";
+import { auth, db } from "@/app/config/firebaseClient";
 import { onAuthStateChanged, signOut, User } from "firebase/auth";
+import { collection, query, where, orderBy, onSnapshot, addDoc, updateDoc, doc, serverTimestamp } from "firebase/firestore";
 
 type Message = {
   id: string;
   role: "user" | "assistant";
   content: string;
+};
+
+type ChatSession = {
+  id: string;
+  title: string;
+  updatedAt: any;
+  messages: Message[];
 };
 
 const SUGGESTIONS = [
@@ -45,12 +53,39 @@ export default function ChatUI() {
   // Auth States
   const [user, setUser] = useState<User | null>(null);
 
+  // Chat History States
+  const [chats, setChats] = useState<ChatSession[]>([]);
+  const [currentChatId, setCurrentChatId] = useState<string | null>(null);
+
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
       setUser(currentUser);
     });
     return () => unsubscribe();
   }, []);
+
+  // Fetch chats from Firestore
+  useEffect(() => {
+    if (!user) {
+      setChats([]);
+      return;
+    }
+    const q = query(
+      collection(db, "chats"),
+      where("userId", "==", user.uid),
+      orderBy("updatedAt", "desc")
+    );
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const fetchedChats: ChatSession[] = [];
+      snapshot.forEach((doc) => {
+        fetchedChats.push({ id: doc.id, ...doc.data() } as ChatSession);
+      });
+      setChats(fetchedChats);
+    }, (error) => {
+      console.error("Error fetching chats:", error);
+    });
+    return () => unsubscribe();
+  }, [user]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -68,6 +103,32 @@ export default function ChatUI() {
     setMessages(newMessages);
     setInput("");
     setIsLoading(true);
+
+    let chatId = currentChatId;
+    if (!chatId && user) {
+      try {
+        const docRef = await addDoc(collection(db, "chats"), {
+          userId: user.uid,
+          title: text.length > 30 ? text.substring(0, 30) + "..." : text,
+          messages: newMessages,
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp()
+        });
+        chatId = docRef.id;
+        setCurrentChatId(chatId);
+      } catch (e) {
+        console.error("Error creating chat doc:", e);
+      }
+    } else if (chatId && user) {
+      try {
+        await updateDoc(doc(db, "chats", chatId), {
+          messages: newMessages,
+          updatedAt: serverTimestamp()
+        });
+      } catch (e) {
+        console.error("Error updating chat doc:", e);
+      }
+    }
 
     try {
       const res = await fetch("/api/chat", {
@@ -87,16 +148,26 @@ export default function ChatUI() {
       let done = false;
 
       const aiMsgId = (Date.now() + 1).toString();
+      let finalContent = "";
       setMessages((prev) => [...prev, { id: aiMsgId, role: "assistant", content: "" }]);
 
       while (!done) {
         const { value, done: doneReading } = await reader.read();
         done = doneReading;
         const chunkValue = decoder.decode(value, { stream: true });
+        finalContent += chunkValue;
         
         setMessages((prev) => 
           prev.map((msg) => msg.id === aiMsgId ? { ...msg, content: msg.content + chunkValue } : msg)
         );
+      }
+
+      if (chatId && user) {
+        const finalMessages: Message[] = [...newMessages, { id: aiMsgId, role: "assistant", content: finalContent }];
+        await updateDoc(doc(db, "chats", chatId), {
+          messages: finalMessages,
+          updatedAt: serverTimestamp()
+        });
       }
     } catch (error: any) {
       console.error(error);
@@ -108,13 +179,13 @@ export default function ChatUI() {
   };
 
   const clearChat = () => {
-    if (confirm("Do you want to start a fresh new chat? ✨")) {
-      setMessages([{
-        id: "welcome",
-        role: "assistant",
-        content: "Hello there! 👋 I'm **Serene**, your positive AI companion! \n\nHow are you feeling today? (ﾉ◕ヮ◕)ﾉ*:･ﾟ✧"
-      }]);
-    }
+    setCurrentChatId(null);
+    setMessages([{
+      id: "welcome",
+      role: "assistant",
+      content: "Hello there! 👋 I'm **Serene**, your positive AI companion! \n\nHow are you feeling today? (ﾉ◕ヮ◕)ﾉ*:･ﾟ✧"
+    }]);
+    if (window.innerWidth < 768) setSidebarOpen(false);
   }
 
   const handleIngest = async (e: React.FormEvent) => {
@@ -179,11 +250,30 @@ export default function ChatUI() {
           </button>
         </div>
 
-        <div className="flex-1 overflow-y-auto px-4 pb-4">
+        <div className="flex-1 overflow-y-auto px-4 pb-4 flex flex-col gap-2">
           <p className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider mb-2 mt-2 ml-1">Recent Chats</p>
-          <div className="p-3 bg-white border-2 border-transparent hover:border-border rounded-2xl text-sm text-foreground truncate cursor-pointer shadow-sm transition-all">
-            {messages.length > 1 ? messages[1].content : "A brand new day! ✨"}
-          </div>
+          {chats.length === 0 ? (
+            <div className="p-3 bg-white/50 border-2 border-transparent rounded-2xl text-sm text-muted-foreground text-center italic shadow-sm">
+              No recent chats
+            </div>
+          ) : (
+            chats.map(chat => (
+              <div 
+                key={chat.id}
+                onClick={() => {
+                  setCurrentChatId(chat.id);
+                  setMessages(chat.messages || []);
+                  if (window.innerWidth < 768) setSidebarOpen(false);
+                }}
+                className={cn(
+                  "p-3 border-2 rounded-2xl text-sm text-foreground truncate cursor-pointer shadow-sm transition-all",
+                  currentChatId === chat.id ? "bg-[#fffbed] border-primary font-medium" : "bg-white border-transparent hover:border-border"
+                )}
+              >
+                {chat.title || "Chat session"}
+              </div>
+            ))
+          )}
         </div>
 
         {/* Fun decor in sidebar */}
