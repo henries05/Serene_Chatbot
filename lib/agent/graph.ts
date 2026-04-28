@@ -9,6 +9,7 @@ const model = new ChatGoogleGenerativeAI({
   model: process.env.GEMINI_MODEL_NAME || "gemini-1.5-pro",
   apiKey: process.env.GEMINI_API_KEY,
   temperature: 0.7,
+  maxRetries: 0, // Prevent hanging for 120s when Free Tier quota is reached
 });
 
 // Bind tools to the model
