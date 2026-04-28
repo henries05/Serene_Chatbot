@@ -30,12 +30,12 @@ export async function POST(req: Request) {
         try {
           const streamData = await agentGraph.stream(
             { messages: langChainMessages },
-            { streamMode: "messages", version: "v2" }
+            { streamMode: "messages" }
           );
 
           for await (const chunk of streamData) {
             const [messageChunk, metadata] = chunk;
-            if (metadata?.langgraph_node === "agent" && messageChunk?.content) {
+            if (metadata?.langgraph_node === "agent" && typeof messageChunk?.content === "string") {
               controller.enqueue(new TextEncoder().encode(messageChunk.content));
               hasSentData = true;
             }
