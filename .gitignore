@@ -41,5 +41,4 @@ yarn-error.log*
 
 # Firebase service account (secrets)
 firebase-service-account.json
-firebase-service-account.json
 next-env.d.ts

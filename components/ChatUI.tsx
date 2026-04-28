@@ -5,6 +5,8 @@ import { Send, Menu, Plus, Star, AlertTriangle, ChevronDown, Sparkles, Smile, Up
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { cn } from "@/lib/utils";
+import { auth } from "@/app/config/firebaseClient";
+import { onAuthStateChanged, signOut, User } from "firebase/auth";
 
 type Message = {
   id: string;
@@ -39,6 +41,16 @@ export default function ChatUI() {
   const [chunkOverlap, setChunkOverlap] = useState("200");
   const [embeddingModel, setEmbeddingModel] = useState("gemini-embedding-001");
   const [isIngesting, setIsIngesting] = useState(false);
+
+  // Auth States
+  const [user, setUser] = useState<User | null>(null);
+
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
+      setUser(currentUser);
+    });
+    return () => unsubscribe();
+  }, []);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -179,6 +191,45 @@ export default function ChatUI() {
           <span>🐶</span>
           <span>🌈</span>
           <span>🌻</span>
+        </div>
+
+        {/* Auth Section */}
+        <div className="p-4 border-t border-border/50 mt-auto bg-white/50">
+          {user ? (
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2 overflow-hidden">
+                <img 
+                  src={user.photoURL || `https://ui-avatars.com/api/?name=${user.displayName || "User"}&background=random`} 
+                  alt={user.displayName || "User"} 
+                  className="w-8 h-8 rounded-full border border-border" 
+                />
+                <span className="text-sm font-medium truncate">
+                  {user.displayName || "User"}
+                </span>
+              </div>
+              <button 
+                onClick={() => signOut(auth)}
+                className="text-xs font-bold text-red-500 hover:text-red-700 bg-red-50 hover:bg-red-100 px-3 py-1.5 rounded-full transition-colors"
+              >
+                Log Out
+              </button>
+            </div>
+          ) : (
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-full bg-slate-200 flex items-center justify-center text-slate-500 font-bold border border-border">
+                  G
+                </div>
+                <span className="text-sm font-medium text-slate-600">Guest User</span>
+              </div>
+              <button 
+                onClick={() => window.location.reload()}
+                className="text-xs font-bold text-primary hover:text-primary-foreground bg-accent hover:bg-primary px-3 py-1.5 rounded-full transition-colors truncate"
+              >
+                Log In
+              </button>
+            </div>
+          )}
         </div>
         
         <div className="p-3 pb-safe bg-accent/30 text-[10px] text-muted-foreground text-center font-medium">
